@@ -324,19 +324,50 @@ class QuarkPanFileManager:
 
     @staticmethod
     async def download_file(download_url: str, save_path: str, headers: dict) -> None:
+        # 清理文件路径中的无效字符
+        def clean_filename(filename):
+            """清理文件名中的无效字符"""
+            invalid_chars = '<>:"/\\|?*'
+            for char in invalid_chars:
+                filename = filename.replace(char, '_')
+            return filename.strip()
+        
+        # 清理保存路径
+        path_parts = save_path.split(os.sep)
+        cleaned_parts = []
+        for part in path_parts[:-1]:  # 处理目录部分
+            cleaned_parts.append(clean_filename(part) if part else part)
+        
+        # 处理文件名部分
+        if path_parts:
+            filename = clean_filename(path_parts[-1])
+            cleaned_parts.append(filename)
+        
+        cleaned_save_path = os.sep.join(cleaned_parts)
+        
+        # 确保目录存在
+        directory = os.path.dirname(cleaned_save_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        
         async with httpx.AsyncClient() as client:
             timeout = httpx.Timeout(60.0, connect=60.0)
             async with client.stream("GET", download_url, headers=headers, timeout=timeout) as response:
                 if response.headers.get("content-length") is None:
                     response.headers["content-length"] = "0"
-                with open(save_path, "wb") as f:
-                    with tqdm(unit="B", unit_scale=True,
-                              desc=os.path.basename(save_path),
-                              ncols=80) as pbar:
-                        async for chunk in response.aiter_bytes():
-                            f.write(chunk)
-                            pbar.update(len(chunk))
-
+                try:
+                    with open(cleaned_save_path, "wb") as f:
+                        with tqdm(unit="B", unit_scale=True,
+                                desc=os.path.basename(cleaned_save_path),
+                                ncols=80) as pbar:
+                            async for chunk in response.aiter_bytes():
+                                f.write(chunk)
+                                pbar.update(len(chunk))
+                    custom_print(f"下载成功：{cleaned_save_path}")
+                except Exception as e:
+                    custom_print(f"下载失败：{cleaned_save_path} - {str(e)}", error_msg=True)
+                    import traceback
+                    traceback.print_exc()
     async def quark_file_download(self, fids: List[str], folder: str = '', folders_map=None) -> None:
         folders_map = folders_map or {}
         params = {
@@ -375,9 +406,9 @@ class QuarkPanFileManager:
                 if "pdir_fid" in i:
                     pdir_fid = i["pdir_fid"]
                     while pdir_fid in folders_map:
-                        base_path = "/" + folders_map[pdir_fid]["file_name"] + base_path
+                        base_path = "\\" + folders_map[pdir_fid]["file_name"] + base_path
                         pdir_fid = folders_map[pdir_fid]["pdir_fid"]
-                final_save_folder = f"{save_folder}/{base_path}"
+                final_save_folder = f"{save_folder}{base_path}"
                 os.makedirs(final_save_folder, exist_ok=True)
                 # build save path stop
 
